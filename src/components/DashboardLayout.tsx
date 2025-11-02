@@ -48,8 +48,8 @@ export default function DashboardLayout() {
                 <Gavel className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-slate-900">Tabbycat Clone</h1>
-                <p className="text-xs text-slate-500">Tournament Management</p>
+                <h1 className="text-xl font-bold text-slate-900">Roparcat</h1>
+                <p className="text-xs text-slate-500">Debsoc, IIT Ropar</p>
               </div>
             </div>
 
