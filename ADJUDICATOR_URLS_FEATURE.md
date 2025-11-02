@@ -106,3 +106,4 @@ This ensures standings are always up-to-date without manual intervention.
 - No history of past debates shown
 - No ability to edit submitted results (would require additional feature)
 
+

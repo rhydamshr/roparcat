@@ -186,6 +186,7 @@ export type Database = {
           motion_3: string | null;
           info_slide: string | null;
           status: 'setup' | 'ongoing' | 'completed';
+          round_type: 'inround' | 'outround' | null;
           created_at: string;
         };
         Insert: {
@@ -199,6 +200,7 @@ export type Database = {
           motion_3?: string | null;
           info_slide?: string | null;
           status?: 'setup' | 'ongoing' | 'completed';
+          round_type?: 'inround' | 'outround' | null;
           created_at?: string;
         };
         Update: {
@@ -212,6 +214,7 @@ export type Database = {
           motion_3?: string | null;
           info_slide?: string | null;
           status?: 'setup' | 'ongoing' | 'completed';
+          round_type?: 'inround' | 'outround' | null;
           created_at?: string;
         };
       };

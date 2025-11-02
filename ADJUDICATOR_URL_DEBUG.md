@@ -161,3 +161,4 @@ CREATE POLICY IF NOT EXISTS "Public can view rounds"
 3. **Test with an adjudicator URL**
 
 The updated code now provides much better error messages and debugging information!
+

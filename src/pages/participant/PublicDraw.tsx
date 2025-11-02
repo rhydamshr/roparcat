@@ -100,10 +100,17 @@ export default function PublicDraw() {
 
       if (standingsError) throw standingsError;
 
-      const teamStandings = standingsData.map((t, index) => ({
+      // Sort by total_points first, then total_speaks
+      const sortedStandings = [...standingsData].sort((a, b) => {
+        if (b.total_points !== a.total_points) {
+          return b.total_points - a.total_points;
+        }
+        return b.total_speaks - a.total_speaks;
+      });
+
+      const teamStandings = sortedStandings.map((t, index) => ({
         ...t,
-        rank: index + 1,
-        average_speaks: t.rounds_count > 0 ? t.total_speaks / t.rounds_count : 0
+        rank: index + 1
       }));
 
       setStandings(teamStandings);
@@ -147,9 +154,6 @@ export default function PublicDraw() {
     const teamStats = team;
     return {
       totalPoints: teamStats?.total_points || 0,
-      averageSpeaks: teamStats?.rounds_count > 0 
-        ? (teamStats.total_speaks / teamStats.rounds_count).toFixed(2)
-        : '0.00',
       roundsCompleted: teamStats?.rounds_count || 0
     };
   };
@@ -217,9 +221,9 @@ export default function PublicDraw() {
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-green-600">
-                  {stats.averageSpeaks}
+                  {stats.roundsCompleted}
                 </div>
-                <div className="text-xs text-slate-600">Avg Speaks</div>
+                <div className="text-xs text-slate-600">Rounds</div>
               </div>
             </div>
           </div>
@@ -401,19 +405,18 @@ export default function PublicDraw() {
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">Rank</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">Team</th>
                   <th className="text-center px-4 py-3 text-xs font-medium text-slate-500 uppercase">Points</th>
-                  <th className="text-center px-4 py-3 text-xs font-medium text-slate-500 uppercase">Avg Speaks</th>
                   <th className="text-center px-4 py-3 text-xs font-medium text-slate-500 uppercase">Rounds</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {standings.slice(0, 10).map((s, index) => (
+                {standings.map((s, index) => (
                   <tr
                     key={s.id}
                     className={s.id === teamId ? 'bg-blue-50 font-medium' : 'hover:bg-slate-50'}
                   >
                     <td className="px-4 py-3 text-sm text-slate-900">
                       {index < 4 && <span className="mr-2">🏆</span>}
-                      {index + 1}
+                      {s.rank}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-900">
                       {s.name}
@@ -421,9 +424,6 @@ export default function PublicDraw() {
                     </td>
                     <td className="px-4 py-3 text-sm text-center text-slate-900">
                       {s.total_points}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-center text-slate-600">
-                      {s.average_speaks.toFixed(2)}
                     </td>
                     <td className="px-4 py-3 text-sm text-center text-slate-600">
                       {s.rounds_count}

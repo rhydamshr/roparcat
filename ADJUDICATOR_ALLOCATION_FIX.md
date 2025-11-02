@@ -81,3 +81,4 @@ if (availableAdjs.length > 0) {
 5. **Verify**: Each debate has exactly one adjudicator
 
 The fix ensures fair and proper adjudicator allocation!
+

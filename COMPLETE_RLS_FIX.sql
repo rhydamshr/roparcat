@@ -21,3 +21,4 @@ ORDER BY tablename, policyname;
 -- Step 5: Test a simple update (replace with actual IDs from your database)
 -- UPDATE debates SET status = 'completed' WHERE id = 'your-debate-id-here';
 -- UPDATE teams SET total_points = 1 WHERE id = 'your-team-id-here';
+

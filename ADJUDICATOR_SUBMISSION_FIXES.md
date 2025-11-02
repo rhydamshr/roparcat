@@ -127,3 +127,4 @@ const updateTeamStandings = async () => {
 - ✅ **Real-time standings** that reflect all submitted results
 
 The adjudicator submission process now works perfectly!
+

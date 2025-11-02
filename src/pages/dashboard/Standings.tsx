@@ -17,7 +17,6 @@ type Team = {
   total_points: number;
   total_speaks: number;
   rounds_count: number;
-  average_speaks: number;
   institutions?: { name: string };
 };
 
@@ -129,18 +128,20 @@ export default function Standings() {
 
       if (teamsError) throw teamsError;
 
-      // Calculate average speaks
-      const teamsWithAverage = (teamsData || []).map(team => ({
-        ...team,
-        average_speaks: team.rounds_count > 0 ? (team.total_speaks / team.rounds_count) : 0
-      }));
+      // Sort by total_points first, then total_speaks
+      const teamsSorted = (teamsData || []).sort((a, b) => {
+        if (b.total_points !== a.total_points) {
+          return b.total_points - a.total_points;
+        }
+        return b.total_speaks - a.total_speaks;
+      });
 
-      setTeams(teamsWithAverage);
+      setTeams(teamsSorted);
 
       // Calculate speaker standings
       const speakerMap = new Map<string, Speaker>();
       
-      teamsWithAverage.forEach(team => {
+      teamsSorted.forEach(team => {
         team.speaker_names.forEach((speakerName, index) => {
           const key = `${team.name}-${speakerName}`;
           if (!speakerMap.has(key)) {
@@ -215,7 +216,6 @@ export default function Standings() {
         Institution: team.institutions?.name || '',
         'Total Points': team.total_points,
         'Total Speaks': team.total_speaks.toFixed(2),
-        'Average Speaks': team.average_speaks.toFixed(2),
         'Rounds': team.rounds_count
       }));
 
@@ -330,7 +330,7 @@ export default function Standings() {
                       Points
                     </th>
                     <th className="text-center px-6 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">
-                      Avg Speaks
+                      Total Speaks
                     </th>
                     <th className="text-center px-6 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">
                       Rounds
@@ -354,7 +354,7 @@ export default function Standings() {
                         {team.total_points}
                       </td>
                       <td className="px-6 py-4 text-sm text-center text-slate-600">
-                        {team.average_speaks.toFixed(2)}
+                        {team.total_speaks.toFixed(2)}
                       </td>
                       <td className="px-6 py-4 text-sm text-center text-slate-600">
                         {team.rounds_count}

@@ -3,3 +3,4 @@ ALTER TABLE speaker_scores DROP CONSTRAINT IF EXISTS speaker_scores_position_che
 ALTER TABLE speaker_scores ADD CONSTRAINT speaker_scores_position_check 
   CHECK (position IN (1, 2, 3));
 
+

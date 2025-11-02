@@ -126,3 +126,4 @@ ALTER TABLE debate_teams ADD CONSTRAINT debate_teams_position_check
 
 **Everything is now configured for Asian Parliamentary format!** 🎉
 
+

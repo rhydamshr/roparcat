@@ -29,3 +29,4 @@ Adjudicator private URLs should now work without the column error.
    - Proper error message (if other issues)
 
 The fix is now live in the code!
+

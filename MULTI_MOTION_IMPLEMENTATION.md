@@ -218,3 +218,4 @@ const getOpposingTeams = (debate: Debate) => {
 4. Check participant URL shows exact opponents
 5. Check admin can see all opponents clearly
 
+

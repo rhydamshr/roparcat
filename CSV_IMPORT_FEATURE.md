@@ -122,3 +122,4 @@ The following CSV files are provided for testing:
 5. **Capacity Defaults**: Rooms without capacity will default to 20
 
 This feature makes it much easier to set up tournaments with large amounts of data!
+

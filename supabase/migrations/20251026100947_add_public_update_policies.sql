@@ -30,3 +30,4 @@ CREATE POLICY "Public can update teams"
   ON teams FOR UPDATE
   TO public
   USING (true);
+

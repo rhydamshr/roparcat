@@ -51,3 +51,4 @@ SELECT id, name, total_points, total_speaks, rounds_count
 FROM teams 
 ORDER BY total_points DESC 
 LIMIT 5;
+

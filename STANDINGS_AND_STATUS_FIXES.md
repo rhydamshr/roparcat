@@ -198,3 +198,4 @@ If the issues persist after these fixes:
 5. **Test with a simple manual update** to verify database access
 
 The enhanced debugging should help identify exactly where the issue is occurring!
+

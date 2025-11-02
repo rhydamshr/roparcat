@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { Plus, Edit2, Trash2, Search, FileText, Users, Award, ChevronRight, ChevronDown, Upload, Download, RefreshCw } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, FileText, Users, Award, ChevronRight, ChevronDown, Upload, Download, RefreshCw, Trophy, ArrowRight } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 type Tournament = {
@@ -22,6 +22,7 @@ type Round = {
   motion_3: string | null;
   info_slide: string | null;
   status: 'setup' | 'ongoing' | 'completed';
+  round_type?: 'inround' | 'outround';
   created_at: string;
   tournaments?: Tournament;
 };
@@ -65,10 +66,61 @@ export default function Rounds() {
     status: 'setup' as 'setup' | 'ongoing' | 'completed'
   });
   const [error, setError] = useState('');
+  const [showBreaksModal, setShowBreaksModal] = useState(false);
+  const [breakingTeams, setBreakingTeams] = useState<any[]>([]);
+  const [semiFinalDraws, setSemiFinalDraws] = useState<{ team1: string; team2: string; adjudicator: string; room: string }[]>([
+    { team1: '', team2: '', adjudicator: '', room: '' },
+    { team1: '', team2: '', adjudicator: '', room: '' }
+  ]);
+  const [semiFinalMotions, setSemiFinalMotions] = useState({ motion_1: '', motion_2: '', motion_3: '' });
+  const [showFinalsModal, setShowFinalsModal] = useState(false);
+  const [finalsMotions, setFinalsMotions] = useState({ motion_1: '', motion_2: '', motion_3: '' });
+  const [finalsDraw, setFinalsDraw] = useState({ adjudicator: '', room: '' });
+  const [finalsRoundId, setFinalsRoundId] = useState<string | null>(null);
+  const [qualifiedFinalists, setQualifiedFinalists] = useState<any[]>([]);
 
   useEffect(() => {
     fetchData();
+    checkForFinalsEligibility();
   }, [tournamentId]);
+
+  // Check if semi-finals are completed and auto-qualify winners to finals
+  const checkForFinalsEligibility = async () => {
+    if (!tournamentId) return;
+
+    try {
+      // Find semi-final rounds
+      const { data: semiFinals } = await supabase
+        .from('rounds')
+        .select('*')
+        .eq('tournament_id', tournamentId)
+        .like('name', 'Semi-Final%')
+        .eq('round_type', 'outround');
+
+      if (!semiFinals || semiFinals.length < 2) return;
+
+      // Check if both semi-finals are completed
+      const bothCompleted = semiFinals.every(sf => sf.status === 'completed');
+
+      if (!bothCompleted) return;
+
+      // Check if finals already exists
+      const { data: existingFinals } = await supabase
+        .from('rounds')
+        .select('*')
+        .eq('tournament_id', tournamentId)
+        .eq('name', 'Finals')
+        .eq('round_type', 'outround');
+
+      if (existingFinals && existingFinals.length > 0) return; // Finals already exists
+
+      // Auto-generate finals (this will be called automatically)
+      // We'll show a notification instead of auto-creating to give admin control
+      console.log('Both semi-finals completed - ready to generate finals');
+    } catch (error) {
+      console.error('Error checking finals eligibility:', error);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -98,6 +150,16 @@ export default function Rounds() {
 
         if (roundsError) throw roundsError;
         setRounds(roundsData || []);
+
+        // Fetch breaking teams if any exist for this tournament
+        if (tournamentId) {
+          const { data: breakingData } = await supabase
+            .from('breaking_teams')
+            .select('*, teams(*)')
+            .eq('tournament_id', tournamentId);
+          
+          // This will be used later when creating breaks
+        }
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -131,7 +193,7 @@ export default function Rounds() {
     setError('');
 
     try {
-      const data = {
+      const data: any = {
         tournament_id: formData.tournament_id,
         round_number: formData.round_number,
         name: formData.name,
@@ -141,8 +203,30 @@ export default function Rounds() {
         info_slide: formData.info_slide || null,
         status: formData.status
       };
+      
+      // Only include round_type if the column exists (for backward compatibility)
+      // Try to set it, but don't fail if column doesn't exist
+      try {
+        data.round_type = 'inround'; // Default to inround for manually created rounds
+      } catch (e) {
+        // Column might not exist yet - migration not run
+      }
 
       if (editingId) {
+        // Preserve round_type when editing - don't override outrounds
+        const { data: currentRound } = await supabase
+          .from('rounds')
+          .select('round_type')
+          .eq('id', editingId)
+          .single();
+        
+        // If it's an outround, preserve it; otherwise use inround
+        if (currentRound?.round_type === 'outround') {
+          data.round_type = 'outround';
+        } else if (!currentRound?.round_type) {
+          data.round_type = 'inround';
+        }
+        
         const { error } = await supabase
           .from('rounds')
           .update(data)
@@ -179,6 +263,26 @@ export default function Rounds() {
       status: round.status
     });
     setShowModal(true);
+  };
+  
+  // Preserve round_type when editing - don't override it
+  const handleUpdateRound = async (roundId: string, updates: any) => {
+    // Get current round to preserve round_type
+    const { data: currentRound } = await supabase
+      .from('rounds')
+      .select('round_type')
+      .eq('id', roundId)
+      .single();
+    
+    // If round_type exists and is outround, preserve it
+    if (currentRound?.round_type === 'outround') {
+      updates.round_type = 'outround';
+    }
+    
+    return await supabase
+      .from('rounds')
+      .update(updates)
+      .eq('id', roundId);
   };
 
   const handleDelete = async (id: string) => {
@@ -271,7 +375,26 @@ export default function Rounds() {
 
       const format = roundData.tournaments.format;
       const availableRooms = rooms;
-      const availableTeams = teams;
+      
+      // Check if this is an outround - only use breaking teams
+      let availableTeams = teams;
+      if (roundData.round_type && roundData.round_type === 'outround') {
+        // Get teams that have broken to this round
+        const { data: breakingTeamsData } = await supabase
+          .from('breaking_teams')
+          .select('*, teams(*)')
+          .eq('broke_to_round_id', roundId);
+        
+        if (breakingTeamsData && breakingTeamsData.length > 0) {
+          availableTeams = breakingTeamsData.map(bt => ({
+            ...bt.teams,
+            break_rank: bt.break_rank
+          }));
+        } else {
+          alert('No teams have broken to this round yet. Please generate breaks first.');
+          return;
+        }
+      }
 
       // Get available motions
       const motions = [
@@ -361,9 +484,558 @@ export default function Rounds() {
       const assignedAdjs = shuffledAdjs.length - availableAdjs.length;
       alert(`Draw generated! Created ${newDebates.length} debates with ${assignedAdjs} adjudicators assigned.`);
       fetchData();
+      if (selectedRound === roundId) {
+        fetchDebates(roundId);
+      }
     } catch (error: any) {
       setError(error.message);
       alert('Error generating draw: ' + error.message);
+    }
+  };
+
+  const openBreaksModal = async () => {
+    if (!tournamentId) {
+      alert('Please select a tournament first');
+      return;
+    }
+
+    try {
+      // Get top teams ordered by total_points, then average speaks
+      const { data: teamsData, error: teamsError } = await supabase
+        .from('teams')
+        .select('*, institutions(name)')
+        .order('total_points', { ascending: false });
+
+      if (teamsError) throw teamsError;
+
+      // Sort by total_points first, then total_speaks
+      const teamsSorted = (teamsData || []).sort((a, b) => {
+        // Sort by total_points first
+        if (b.total_points !== a.total_points) {
+          return b.total_points - a.total_points;
+        }
+        // Then by total_speaks
+        return b.total_speaks - a.total_speaks;
+      });
+
+      // Get top 4 teams for semi-finals
+      const top4 = teamsSorted.slice(0, 4);
+      setBreakingTeams(top4);
+      
+      // Initialize semi-final draws with default teams
+      setSemiFinalDraws([
+        { team1: top4[0]?.id || '', team2: top4[3]?.id || '', adjudicator: '', room: '' },
+        { team1: top4[1]?.id || '', team2: top4[2]?.id || '', adjudicator: '', room: '' }
+      ]);
+      
+      // Reset motions
+      setSemiFinalMotions({ motion_1: '', motion_2: '', motion_3: '' });
+
+      setShowBreaksModal(true);
+    } catch (error: any) {
+      alert('Error fetching teams: ' + error.message);
+    }
+  };
+
+  const generateBreaks = async () => {
+    if (!tournamentId) return;
+
+    // Validate that all semi-final draws have teams, adjudicators, and rooms
+    const hasEmptyDraw = semiFinalDraws.some(draw => !draw.team1 || !draw.team2 || !draw.adjudicator || !draw.room);
+    if (hasEmptyDraw) {
+      alert('Please ensure both semi-finals have two teams, an adjudicator, and a room selected');
+      return;
+    }
+
+    // Validate motions
+    if (!semiFinalMotions.motion_1) {
+      alert('Please enter at least Motion 1 for the semi-finals');
+      return;
+    }
+
+    try {
+      // Find the last round to determine next round number
+      const { data: lastRound } = await supabase
+        .from('rounds')
+        .select('*')
+        .eq('tournament_id', tournamentId)
+        .order('round_number', { ascending: false })
+        .limit(1);
+
+      const lastRoundNumber = lastRound && lastRound.length > 0 ? lastRound[0].round_number : 0;
+      const semiFinalRoundNumber = lastRoundNumber + 1;
+
+      // Create Semi-Final 1 round with motions
+      const semiFinal1Data: any = {
+        tournament_id: tournamentId,
+        round_number: semiFinalRoundNumber,
+        name: 'Semi-Final 1',
+        motion_1: semiFinalMotions.motion_1,
+        motion_2: semiFinalMotions.motion_2 || null,
+        motion_3: semiFinalMotions.motion_3 || null,
+        info_slide: '',
+        status: 'setup',
+        round_type: 'outround'
+      };
+      
+      // Try to add round_type, but handle if column doesn't exist
+      try {
+        semiFinal1Data.round_type = 'outround';
+      } catch (e) {
+        // Column might not exist - migration not run
+      }
+
+      const { data: semiFinal1, error: semiFinal1Error } = await supabase
+        .from('rounds')
+        .insert(semiFinal1Data)
+        .select()
+        .single();
+
+      if (semiFinal1Error) {
+        // If error is about missing column, provide helpful message
+        if (semiFinal1Error.message.includes('round_type') || semiFinal1Error.message.includes('column')) {
+          throw new Error('Database migration not run. Please run the migration file: supabase/migrations/20251026100948_add_breaks_feature.sql in your Supabase SQL Editor first.');
+        }
+        throw semiFinal1Error;
+      }
+
+      // Create Semi-Final 2 round with motions
+      const semiFinal2Data: any = {
+        tournament_id: tournamentId,
+        round_number: semiFinalRoundNumber + 1,
+        name: 'Semi-Final 2',
+        motion_1: semiFinalMotions.motion_1,
+        motion_2: semiFinalMotions.motion_2 || null,
+        motion_3: semiFinalMotions.motion_3 || null,
+        info_slide: '',
+        status: 'setup',
+        round_type: 'outround'
+      };
+      
+      try {
+        semiFinal2Data.round_type = 'outround';
+      } catch (e) {
+        // Column might not exist - migration not run
+      }
+
+      const { data: semiFinal2, error: semiFinal2Error } = await supabase
+        .from('rounds')
+        .insert(semiFinal2Data)
+        .select()
+        .single();
+
+      if (semiFinal2Error) {
+        if (semiFinal2Error.message.includes('round_type') || semiFinal2Error.message.includes('column')) {
+          throw new Error('Database migration not run. Please run the migration file: supabase/migrations/20251026100948_add_breaks_feature.sql in your Supabase SQL Editor first.');
+        }
+        throw semiFinal2Error;
+      }
+
+      // Record breaking teams for Semi-Final 1
+      const semi1Teams = [
+        { team_id: semiFinalDraws[0].team1, break_rank: 1 },
+        { team_id: semiFinalDraws[0].team2, break_rank: 4 }
+      ];
+
+      for (const team of semi1Teams) {
+        await supabase
+          .from('breaking_teams')
+          .insert({
+            tournament_id: tournamentId,
+            team_id: team.team_id,
+            round_id: semiFinal1.id,
+            break_rank: team.break_rank,
+            broke_to_round_id: semiFinal1.id
+          });
+      }
+
+      // Record breaking teams for Semi-Final 2
+      const semi2Teams = [
+        { team_id: semiFinalDraws[1].team1, break_rank: 2 },
+        { team_id: semiFinalDraws[1].team2, break_rank: 3 }
+      ];
+
+      for (const team of semi2Teams) {
+        await supabase
+          .from('breaking_teams')
+          .insert({
+            tournament_id: tournamentId,
+            team_id: team.team_id,
+            round_id: semiFinal2.id,
+            break_rank: team.break_rank,
+            broke_to_round_id: semiFinal2.id
+          });
+      }
+
+      // Now generate draws for both semi-finals (create debates, assign teams, adjudicators, rooms)
+      await generateSemiFinalDraw(semiFinal1.id, semiFinalDraws[0], semiFinalMotions);
+      await generateSemiFinalDraw(semiFinal2.id, semiFinalDraws[1], semiFinalMotions);
+
+      alert('Breaks generated successfully! Semi-final rounds, draws, and assignments have been created and made public.');
+      setShowBreaksModal(false);
+      fetchData();
+    } catch (error: any) {
+      alert('Error generating breaks: ' + error.message);
+      console.error(error);
+    }
+  };
+
+  const generateSemiFinalDraw = async (roundId: string, draw: { team1: string; team2: string; adjudicator: string; room: string }, motions: { motion_1: string; motion_2: string; motion_3: string }) => {
+    try {
+      // Create debate
+      const availableMotions = [motions.motion_1, motions.motion_2, motions.motion_3].filter(m => m && m.trim() !== '');
+      const randomMotion = availableMotions.length > 0 
+        ? availableMotions[Math.floor(Math.random() * availableMotions.length)]
+        : motions.motion_1;
+
+      const { data: debate, error: debateError } = await supabase
+        .from('debates')
+        .insert({
+          round_id: roundId,
+          room_id: draw.room,
+          motion_used: randomMotion,
+          status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (debateError) throw debateError;
+
+      // Assign teams (AP format: government vs opposition)
+      await supabase
+        .from('debate_teams')
+        .insert([
+          {
+            debate_id: debate.id,
+            team_id: draw.team1,
+            position: 'government'
+          },
+          {
+            debate_id: debate.id,
+            team_id: draw.team2,
+            position: 'opposition'
+          }
+        ]);
+
+      // Assign adjudicator as chair
+      await supabase
+        .from('debate_adjudicators')
+        .insert({
+          debate_id: debate.id,
+          adjudicator_id: draw.adjudicator,
+          role: 'chair'
+        });
+
+      // Update round status to ongoing to make it public
+      await supabase
+        .from('rounds')
+        .update({ status: 'ongoing' })
+        .eq('id', roundId);
+
+    } catch (error: any) {
+      console.error('Error generating semi-final draw:', error);
+      throw error;
+    }
+  };
+
+  const generateFinals = async () => {
+    if (!tournamentId) return;
+
+    try {
+      // Find all semi-final rounds
+      const { data: semiFinals, error: semiFinalsError } = await supabase
+        .from('rounds')
+        .select('*')
+        .eq('tournament_id', tournamentId)
+        .like('name', 'Semi-Final%')
+        .eq('round_type', 'outround');
+
+      if (semiFinalsError) throw semiFinalsError;
+
+      if (!semiFinals || semiFinals.length < 2) {
+        alert('Please complete both semi-finals first');
+        return;
+      }
+
+      // Check if finals already exists
+      const { data: existingFinals } = await supabase
+        .from('rounds')
+        .select('*')
+        .eq('tournament_id', tournamentId)
+        .ilike('name', '%Final%')
+        .neq('name', 'Semi-Final 1')
+        .neq('name', 'Semi-Final 2');
+
+      if (existingFinals && existingFinals.length > 0) {
+        if (!confirm('A finals round already exists. Create another?')) return;
+      }
+
+      // Get winners from each semi-final (rank 1 teams)
+      const winners: string[] = [];
+
+      for (const semiFinal of semiFinals) {
+        // Get debates in this semi-final
+        const { data: debates } = await supabase
+          .from('debates')
+          .select('id')
+          .eq('round_id', semiFinal.id);
+
+        if (!debates || debates.length === 0) {
+          alert(`Semi-Final "${semiFinal.name}" has no debates. Please generate draws first.`);
+          return;
+        }
+
+        // Get winning team (rank 1) from the first debate in this semi-final
+        // Each semi-final should have exactly one debate with 2 teams
+        const debate = debates[0]; // Get first debate
+        
+        const { data: debateTeams } = await supabase
+          .from('debate_teams')
+          .select('*, teams(*)')
+          .eq('debate_id', debate.id)
+          .eq('rank', 1)
+          .limit(1);
+
+        if (debateTeams && debateTeams.length > 0) {
+          winners.push(debateTeams[0].team_id);
+        } else {
+          alert(`Semi-Final "${semiFinal.name}" results are not complete. Please enter results first.`);
+          return;
+        }
+      }
+
+      if (winners.length < 2) {
+        alert('Could not determine winners from both semi-finals. Please ensure results are entered.');
+        return;
+      }
+
+      // Find the last round number
+      const { data: lastRound } = await supabase
+        .from('rounds')
+        .select('*')
+        .eq('tournament_id', tournamentId)
+        .order('round_number', { ascending: false })
+        .limit(1);
+
+      const lastRoundNumber = lastRound && lastRound.length > 0 ? lastRound[0].round_number : 0;
+
+      // Create Finals round
+      const finalsData: any = {
+        tournament_id: tournamentId,
+        round_number: lastRoundNumber + 1,
+        name: 'Finals',
+        motion_1: '',
+        motion_2: '',
+        motion_3: '',
+        info_slide: '',
+        status: 'setup'
+      };
+      
+      try {
+        finalsData.round_type = 'outround';
+      } catch (e) {
+        // Column might not exist - migration not run
+      }
+
+      const { data: finalsRound, error: finalsError } = await supabase
+        .from('rounds')
+        .insert(finalsData)
+        .select()
+        .single();
+
+      if (finalsError) {
+        if (finalsError.message.includes('round_type') || finalsError.message.includes('column')) {
+          throw new Error('Database migration not run. Please run the migration file: supabase/migrations/20251026100948_add_breaks_feature.sql in your Supabase SQL Editor first.');
+        }
+        throw finalsError;
+      }
+
+      // Record breaking teams for Finals
+      for (let i = 0; i < winners.length; i++) {
+        await supabase
+          .from('breaking_teams')
+          .insert({
+            tournament_id: tournamentId,
+            team_id: winners[i],
+            round_id: finalsRound.id,
+            break_rank: i + 1,
+            broke_to_round_id: finalsRound.id
+          });
+      }
+
+      alert('Finals round created! Winners from both semi-finals have been automatically qualified. Now edit the Finals round to add motions, then generate the draw.');
+      fetchData();
+      checkForFinalsEligibility(); // Refresh the check
+    } catch (error: any) {
+      alert('Error generating finals: ' + error.message);
+      console.error(error);
+    }
+  };
+
+  const canGenerateFinals = () => {
+    if (!tournamentId) return false;
+    
+    // Check if both semi-finals exist and are completed
+    const semiFinals = rounds.filter(r => 
+      r.name?.startsWith('Semi-Final') && r.round_type === 'outround'
+    );
+
+    if (semiFinals.length < 2) return false;
+
+    // Check if finals already exists
+    const finalsExists = rounds.some(r => 
+      r.name === 'Finals' && r.round_type === 'outround'
+    );
+
+    // Check if both semi-finals have completed debates
+    const bothHaveCompletedDebates = semiFinals.every(sf => {
+      // This will be checked when we try to generate finals
+      return true;
+    });
+
+    return !finalsExists && semiFinals.every(sf => sf.status === 'completed');
+  };
+
+  const openFinalsDrawModal = async () => {
+    if (!tournamentId) return;
+
+    // Find the Finals round
+    const finalsRound = rounds.find(r => r.name === 'Finals' && r.round_type === 'outround');
+    if (!finalsRound) {
+      alert('Finals round not found. Please generate finals first.');
+      return;
+    }
+
+    setFinalsRoundId(finalsRound.id);
+    
+    // Check if motions are already set
+    if (finalsRound.motion_1) {
+      setFinalsMotions({
+        motion_1: finalsRound.motion_1 || '',
+        motion_2: finalsRound.motion_2 || '',
+        motion_3: finalsRound.motion_3 || ''
+      });
+    } else {
+      setFinalsMotions({ motion_1: '', motion_2: '', motion_3: '' });
+    }
+
+    // Fetch qualified teams
+    const { data: qualifiedTeams } = await supabase
+      .from('breaking_teams')
+      .select('*, teams(*, institutions(name))')
+      .eq('broke_to_round_id', finalsRound.id)
+      .order('break_rank');
+    
+    setQualifiedFinalists(qualifiedTeams || []);
+
+    // Reset draw settings
+    setFinalsDraw({ adjudicator: '', room: '' });
+
+    setShowFinalsModal(true);
+  };
+
+  const generateFinalsDraw = async () => {
+    if (!finalsRoundId || !tournamentId) return;
+
+    // Validate motions
+    if (!finalsMotions.motion_1) {
+      alert('Please enter at least Motion 1 for the finals');
+      return;
+    }
+
+    // Validate adjudicator and room
+    if (!finalsDraw.adjudicator || !finalsDraw.room) {
+      alert('Please select an adjudicator and room for the finals');
+      return;
+    }
+
+    try {
+      // Update finals round with motions
+      await supabase
+        .from('rounds')
+        .update({
+          motion_1: finalsMotions.motion_1,
+          motion_2: finalsMotions.motion_2 || null,
+          motion_3: finalsMotions.motion_3 || null
+        })
+        .eq('id', finalsRoundId);
+
+      // Get teams that have broken to finals
+      const { data: breakingTeamsData } = await supabase
+        .from('breaking_teams')
+        .select('*, teams(*)')
+        .eq('broke_to_round_id', finalsRoundId)
+        .order('break_rank');
+
+      if (!breakingTeamsData || breakingTeamsData.length < 2) {
+        alert('Finals round does not have 2 qualified teams. Please generate finals first.');
+        return;
+      }
+
+      const finalists = breakingTeamsData.map(bt => ({
+        ...bt.teams,
+        break_rank: bt.break_rank
+      }));
+
+      // Create debate
+      const availableMotions = [finalsMotions.motion_1, finalsMotions.motion_2, finalsMotions.motion_3].filter(m => m && m.trim() !== '');
+      const randomMotion = availableMotions.length > 0 
+        ? availableMotions[Math.floor(Math.random() * availableMotions.length)]
+        : finalsMotions.motion_1;
+
+      const { data: debate, error: debateError } = await supabase
+        .from('debates')
+        .insert({
+          round_id: finalsRoundId,
+          room_id: finalsDraw.room,
+          motion_used: randomMotion,
+          status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (debateError) throw debateError;
+
+      // Assign teams (AP format: government vs opposition)
+      await supabase
+        .from('debate_teams')
+        .insert([
+          {
+            debate_id: debate.id,
+            team_id: finalists[0].id,
+            position: 'government'
+          },
+          {
+            debate_id: debate.id,
+            team_id: finalists[1].id,
+            position: 'opposition'
+          }
+        ]);
+
+      // Assign adjudicator as chair
+      await supabase
+        .from('debate_adjudicators')
+        .insert({
+          debate_id: debate.id,
+          adjudicator_id: finalsDraw.adjudicator,
+          role: 'chair'
+        });
+
+      // Update round status to ongoing to make it public
+      await supabase
+        .from('rounds')
+        .update({ status: 'ongoing' })
+        .eq('id', finalsRoundId);
+
+      alert('Finals draw generated successfully! The draw has been made public to team and adjudicator private URLs.');
+      setShowFinalsModal(false);
+      fetchData();
+      if (selectedRound === finalsRoundId) {
+        fetchDebates(finalsRoundId);
+      }
+    } catch (error: any) {
+      alert('Error generating finals draw: ' + error.message);
+      console.error(error);
     }
   };
 
@@ -408,6 +1080,26 @@ export default function Rounds() {
             <RefreshCw className="w-5 h-5" />
             Refresh
           </button>
+          {isAdmin && tournamentId && (
+            <>
+              <button
+                onClick={openBreaksModal}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                <Trophy className="w-5 h-5" />
+                Generate Breaks
+              </button>
+              {canGenerateFinals() && (
+                <button
+                  onClick={generateFinals}
+                  className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+                >
+                  <Award className="w-5 h-5" />
+                  Generate Finals
+                </button>
+              )}
+            </>
+          )}
           {isAdmin && (
             <button
               onClick={openAddModal}
@@ -465,6 +1157,17 @@ export default function Rounds() {
                         <div className="flex items-center gap-3 text-sm text-slate-600 mt-1">
                           <span>Round {round.round_number}</span>
                           <span>•</span>
+                          {round.round_type && (
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              round.round_type === 'outround'
+                                ? 'bg-purple-100 text-purple-700'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {round.round_type === 'outround' ? 'Outround' : 'Inround'}
+                            </span>
+                          )}
+                          {round.round_type && <span>•</span>}
+                          <span>•</span>
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                             round.status === 'completed'
                               ? 'bg-green-100 text-green-700'
@@ -480,12 +1183,21 @@ export default function Rounds() {
                     <div className="flex items-center gap-2">
                       {isAdmin && (
                         <>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); generateDraw(round.id); }}
-                            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                          >
-                            Generate Draw
-                          </button>
+                          {round.name === 'Finals' && round.round_type === 'outround' ? (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openFinalsDrawModal(); }}
+                              className="px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm"
+                            >
+                              Configure Finals Draw
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); generateDraw(round.id); }}
+                              className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                            >
+                              Generate Draw
+                            </button>
+                          )}
                           <button
                             onClick={(e) => { e.stopPropagation(); handleEdit(round); }}
                             className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
@@ -750,6 +1462,384 @@ export default function Rounds() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Generate Breaks Modal */}
+      {showBreaksModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <Trophy className="w-6 h-6 text-purple-600" />
+              Generate Breaks - Semi-Finals
+            </h2>
+
+            <div className="space-y-6">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Top 4 Teams:</strong> Select which teams will participate in each semi-final. 
+                  Winners of both semi-finals will automatically qualify for the finals.
+                </p>
+              </div>
+
+              {/* Top 4 Teams Display */}
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 mb-3">Top 4 Teams (Ranked by Points)</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {breakingTeams.map((team, index) => (
+                    <div key={team.id} className="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-semibold text-slate-900">#{index + 1}</div>
+                          <div className="text-sm text-slate-700">{team.name}</div>
+                          <div className="text-xs text-slate-500 mt-1">
+                            {team.institutions?.name || 'No Institution'}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-semibold text-slate-900">{team.total_points} pts</div>
+                          <div className="text-xs text-slate-600">
+                            Speaks: {team.total_speaks.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Motions for Semi-Finals */}
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 mb-3">Motions for Semi-Finals</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Motion 1 * (Required)
+                    </label>
+                    <textarea
+                      value={semiFinalMotions.motion_1}
+                      onChange={(e) => setSemiFinalMotions({ ...semiFinalMotions, motion_1: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none text-sm"
+                      rows={2}
+                      placeholder="e.g., THW support universal basic income"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Motion 2 (Optional)
+                    </label>
+                    <textarea
+                      value={semiFinalMotions.motion_2}
+                      onChange={(e) => setSemiFinalMotions({ ...semiFinalMotions, motion_2: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none text-sm"
+                      rows={2}
+                      placeholder="e.g., THW ban single-use plastics"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Motion 3 (Optional)
+                    </label>
+                    <textarea
+                      value={semiFinalMotions.motion_3}
+                      onChange={(e) => setSemiFinalMotions({ ...semiFinalMotions, motion_3: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none text-sm"
+                      rows={2}
+                      placeholder="e.g., THW implement wealth tax"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Semi-Final Draws */}
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 mb-3">Configure Semi-Final Draws</h3>
+                <div className="space-y-4">
+                  {semiFinalDraws.map((draw, index) => (
+                    <div key={index} className="border border-slate-200 rounded-lg p-4 bg-white">
+                      <h4 className="font-semibold text-slate-900 mb-3">Semi-Final {index + 1}</h4>
+                      <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                          <label className="block text-xs font-medium text-slate-700 mb-1">
+                            Team 1
+                          </label>
+                          <select
+                            value={draw.team1}
+                            onChange={(e) => {
+                              const newDraws = [...semiFinalDraws];
+                              newDraws[index].team1 = e.target.value;
+                              setSemiFinalDraws(newDraws);
+                            }}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none bg-white text-sm"
+                          >
+                            <option value="">Select Team</option>
+                            {breakingTeams.map(team => (
+                              <option key={team.id} value={team.id}>
+                                {team.name} ({team.total_points} pts)
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-center justify-center">
+                          <ArrowRight className="w-5 h-5 text-slate-400" />
+                          <span className="mx-2 text-slate-600 font-medium">vs</span>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-700 mb-1">
+                            Team 2
+                          </label>
+                          <select
+                            value={draw.team2}
+                            onChange={(e) => {
+                              const newDraws = [...semiFinalDraws];
+                              newDraws[index].team2 = e.target.value;
+                              setSemiFinalDraws(newDraws);
+                            }}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none bg-white text-sm"
+                          >
+                            <option value="">Select Team</option>
+                            {breakingTeams.map(team => (
+                              <option key={team.id} value={team.id}>
+                                {team.name} ({team.total_points} pts)
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      
+                      {/* Adjudicator and Room */}
+                      <div className="grid grid-cols-2 gap-3 mt-3">
+                        <div>
+                          <label className="block text-xs font-medium text-slate-700 mb-1">
+                            Adjudicator *
+                          </label>
+                          <select
+                            value={draw.adjudicator}
+                            onChange={(e) => {
+                              const newDraws = [...semiFinalDraws];
+                              newDraws[index].adjudicator = e.target.value;
+                              setSemiFinalDraws(newDraws);
+                            }}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none bg-white text-sm"
+                            required
+                          >
+                            <option value="">Select Adjudicator</option>
+                            {adjudicators.map(adj => (
+                              <option key={adj.id} value={adj.id}>
+                                {adj.name} (Strength: {adj.strength})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-700 mb-1">
+                            Room *
+                          </label>
+                          <select
+                            value={draw.room}
+                            onChange={(e) => {
+                              const newDraws = [...semiFinalDraws];
+                              newDraws[index].room = e.target.value;
+                              setSemiFinalDraws(newDraws);
+                            }}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none bg-white text-sm"
+                            required
+                          >
+                            <option value="">Select Room</option>
+                            {rooms.map(room => (
+                              <option key={room.id} value={room.id}>
+                                {room.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> Clicking "Generate Draws" will create the semi-final rounds, assign teams, adjudicators, and rooms, and make everything public to team and adjudicator private URLs. After adjudicators submit results, winners will automatically qualify for finals.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowBreaksModal(false)}
+                  className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={generateBreaks}
+                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-semibold"
+                >
+                  Generate Draws
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Configure Finals Draw Modal */}
+      {showFinalsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <Award className="w-6 h-6 text-yellow-600" />
+              Configure Finals Draw
+            </h2>
+
+            <div className="space-y-6">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Finals:</strong> Configure the motions, adjudicator, and room for the finals debate.
+                  The two teams that won their semi-finals will automatically be assigned.
+                </p>
+              </div>
+
+              {/* Qualified Teams Display */}
+              {qualifiedFinalists.length >= 2 && (
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-3">Qualified Teams</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    {qualifiedFinalists.map((bt: any, index: number) => (
+                      <div key={bt.id} className="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-semibold text-slate-900">Finalist {index + 1}</div>
+                            <div className="text-sm text-slate-700">{bt.teams?.name || 'Team'}</div>
+                            <div className="text-xs text-slate-500 mt-1">
+                              {bt.teams?.institutions?.name || 'No Institution'}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm font-semibold text-slate-900">{bt.teams?.total_points || 0} pts</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Motions for Finals */}
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 mb-3">Motions for Finals</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Motion 1 * (Required)
+                    </label>
+                    <textarea
+                      value={finalsMotions.motion_1}
+                      onChange={(e) => setFinalsMotions({ ...finalsMotions, motion_1: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none text-sm"
+                      rows={2}
+                      placeholder="e.g., THW support universal basic income"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Motion 2 (Optional)
+                    </label>
+                    <textarea
+                      value={finalsMotions.motion_2}
+                      onChange={(e) => setFinalsMotions({ ...finalsMotions, motion_2: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none text-sm"
+                      rows={2}
+                      placeholder="e.g., THW ban single-use plastics"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Motion 3 (Optional)
+                    </label>
+                    <textarea
+                      value={finalsMotions.motion_3}
+                      onChange={(e) => setFinalsMotions({ ...finalsMotions, motion_3: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none text-sm"
+                      rows={2}
+                      placeholder="e.g., THW implement wealth tax"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Adjudicator and Room */}
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 mb-3">Assignment</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Adjudicator *
+                    </label>
+                    <select
+                      value={finalsDraw.adjudicator}
+                      onChange={(e) => setFinalsDraw({ ...finalsDraw, adjudicator: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none bg-white text-sm"
+                      required
+                    >
+                      <option value="">Select Adjudicator</option>
+                      {adjudicators.map(adj => (
+                        <option key={adj.id} value={adj.id}>
+                          {adj.name} (Strength: {adj.strength})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Room *
+                    </label>
+                    <select
+                      value={finalsDraw.room}
+                      onChange={(e) => setFinalsDraw({ ...finalsDraw, room: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none bg-white text-sm"
+                      required
+                    >
+                      <option value="">Select Room</option>
+                      {rooms.map(room => (
+                        <option key={room.id} value={room.id}>
+                          {room.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> Clicking "Generate Draw" will create the finals debate, assign the two qualified teams, adjudicator, and room, and make everything public to team and adjudicator private URLs.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowFinalsModal(false)}
+                  className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={generateFinalsDraw}
+                  className="flex-1 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors font-semibold"
+                >
+                  Generate Draw
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

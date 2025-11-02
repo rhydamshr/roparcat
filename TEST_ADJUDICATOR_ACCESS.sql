@@ -28,3 +28,4 @@ LEFT JOIN rooms r ON d.room_id = r.id
 LEFT JOIN rounds rt ON d.round_id = rt.id
 WHERE da.adjudicator_id = 'YOUR_ADJUDICATOR_ID_HERE'
 LIMIT 5;
+

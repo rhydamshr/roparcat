@@ -92,3 +92,4 @@ const current = debates.find(d => d.status === 'pending');
    - Verify the debate no longer appears
 
 All fixes are now live and working!
+
