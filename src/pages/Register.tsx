@@ -48,8 +48,8 @@ export default function Register() {
                */}
               <svg
   xmlns="http://www.w3.org/2000/svg"
-  width="800"
-  height="800"
+  width="300"
+  height="300"
   viewBox="0 0 64 64"
   aria-hidden="true"
   role="img"
