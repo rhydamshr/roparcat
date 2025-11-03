@@ -79,6 +79,17 @@ export default function Rounds() {
   const [finalsRoundId, setFinalsRoundId] = useState<string | null>(null);
   const [qualifiedFinalists, setQualifiedFinalists] = useState<any[]>([]);
 
+  // Draw Editor state
+  const [showDrawEditor, setShowDrawEditor] = useState(false);
+  const [editorRoundId, setEditorRoundId] = useState<string | null>(null);
+  const [draftDebates, setDraftDebates] = useState<Array<{
+    room_id: string | null;
+    motion_used: string;
+    adjudicator_id: string | null;
+    team1_id: string | null;
+    team2_id: string | null;
+  }>>([]);
+
   useEffect(() => {
     fetchData();
     checkForFinalsEligibility();
@@ -317,12 +328,10 @@ export default function Rounds() {
     setError('');
   };
 
-  const generateDraw = async (roundId: string) => {
-    if (!confirm('This will generate a draw for this round. Any existing draws will be removed. Continue?')) return;
-
+  const openDrawEditor = async (roundId: string) => {
     try {
       // First, remove existing draws for this round
-      console.log('Removing existing draws for round:', roundId);
+      console.log('Preparing draft by removing existing draws for round:', roundId);
       
       // Get existing debates for this round
       const { data: existingDebates } = await supabase
@@ -373,122 +382,79 @@ export default function Rounds() {
 
       if (!roundData || !roundData.tournaments) return;
 
-      const format = roundData.tournaments.format;
       const availableRooms = rooms;
-      
-      // Check if this is an outround - only use breaking teams
-      let availableTeams = teams;
+
+      // Decide eligible teams
+      let eligibleTeams = teams;
       if (roundData.round_type && roundData.round_type === 'outround') {
-        // Get teams that have broken to this round
         const { data: breakingTeamsData } = await supabase
           .from('breaking_teams')
           .select('*, teams(*)')
           .eq('broke_to_round_id', roundId);
-        
         if (breakingTeamsData && breakingTeamsData.length > 0) {
-          availableTeams = breakingTeamsData.map(bt => ({
-            ...bt.teams,
-            break_rank: bt.break_rank
-          }));
+          eligibleTeams = breakingTeamsData.map(bt => ({ ...bt.teams }));
         } else {
           alert('No teams have broken to this round yet. Please generate breaks first.');
           return;
         }
       }
 
-      // Get available motions
-      const motions = [
-        roundData.motion_1,
-        roundData.motion_2,
-        roundData.motion_3
-      ].filter(m => m).filter(Boolean);
+      // Motions available from round
+      const motions = [roundData.motion_1, roundData.motion_2, roundData.motion_3].filter(Boolean) as string[];
 
-      // Asian Parliamentary: pair teams (2 teams per debate: Government vs Opposition)
-      const shuffledTeams = [...availableTeams].sort((a, b) => b.total_points - a.total_points);
-      const numDebates = Math.ceil(shuffledTeams.length / 2);
-
-      // Shuffle adjudicators once and assign one per debate
-      const shuffledAdjs = [...adjudicators].sort(() => Math.random() - 0.5);
-      const availableAdjs = [...shuffledAdjs]; // Copy to track available adjudicators
-
-      // Warn if not enough adjudicators
-      if (availableAdjs.length < numDebates) {
-        const proceed = confirm(`Warning: You have ${availableAdjs.length} adjudicators but ${numDebates} debates. Some debates will not have adjudicators. Continue?`);
-        if (!proceed) return;
+      // Build initial draft pairings (2 teams per debate for AP)
+      const sortedTeams = [...eligibleTeams].sort((a, b) => {
+        if ((b.total_points || 0) !== (a.total_points || 0)) return (b.total_points || 0) - (a.total_points || 0);
+        return (b.total_speaks || 0) - (a.total_speaks || 0);
+      });
+      const draft: typeof draftDebates = [];
+      const numDebates = Math.min(Math.ceil(sortedTeams.length / 2), availableRooms.length);
+      for (let i = 0; i < numDebates; i++) {
+        draft.push({
+          room_id: availableRooms[i]?.id || null,
+          motion_used: motions[0] || '',
+          adjudicator_id: adjudicators[0]?.id || null,
+          team1_id: sortedTeams[i * 2]?.id || null,
+          team2_id: sortedTeams[i * 2 + 1]?.id || null
+        });
       }
 
-      const newDebates = [];
-
-      for (let i = 0; i < numDebates && i < availableRooms.length; i++) {
-        // Assign random motion to this debate
-        const randomMotion = motions.length > 0 
-          ? motions[Math.floor(Math.random() * motions.length)]
-          : null;
-
-        // Create debate
-        const { data: debate, error: debateError } = await supabase
-          .from('debates')
-          .insert({
-            round_id: roundId,
-            room_id: availableRooms[i].id,
-            motion_used: randomMotion
-          })
-          .select()
-          .single();
-
-        if (debateError) {
-          console.error('Error creating debate:', debateError);
-          continue;
-        }
-
-        // Assign teams (AP: Government vs Opposition) - 2 teams per debate
-        const teamIndices = [i * 2, i * 2 + 1].filter(idx => idx < shuffledTeams.length);
-        const positions: ('government' | 'opposition')[] = ['government', 'opposition'];
-
-        for (let j = 0; j < teamIndices.length; j++) {
-          const teamInsert = await supabase
-            .from('debate_teams')
-            .insert({
-              debate_id: debate.id,
-              team_id: shuffledTeams[teamIndices[j]].id,
-              position: positions[j]
-            });
-          
-          if (teamInsert.error) {
-            console.error('Error assigning team:', teamInsert.error);
-          }
-        }
-
-        // Assign ONE adjudicator per debate (chair only)
-        if (availableAdjs.length > 0) {
-          const assignedAdj = availableAdjs.shift(); // Remove from available list
-          
-          const adjInsert = await supabase
-            .from('debate_adjudicators')
-            .insert({
-              debate_id: debate.id,
-              adjudicator_id: assignedAdj.id,
-              role: 'chair'
-            });
-          
-          if (adjInsert.error) {
-            console.error('Error assigning adjudicator:', adjInsert.error);
-          }
-        } else {
-          console.warn(`No more adjudicators available for debate ${i + 1}`);
-        }
-
-        newDebates.push(debate);
-      }
-
-      const assignedAdjs = shuffledAdjs.length - availableAdjs.length;
-      alert(`Draw generated! Created ${newDebates.length} debates with ${assignedAdjs} adjudicators assigned.`);
-      fetchData();
-      if (selectedRound === roundId) {
-        fetchDebates(roundId);
-      }
+      setEditorRoundId(roundId);
+      setDraftDebates(draft);
+      setShowDrawEditor(true);
     } catch (error: any) {
       setError(error.message);
+      alert('Error preparing draw editor: ' + error.message);
+    }
+  };
+
+  const confirmDrawFromEditor = async () => {
+    if (!editorRoundId) return;
+    try {
+      // Create debates from draftDebates
+      for (const d of draftDebates) {
+        if (!d.team1_id || !d.team2_id || !d.room_id) continue;
+        const { data: debate, error: debateError } = await supabase
+          .from('debates')
+          .insert({ round_id: editorRoundId, room_id: d.room_id, motion_used: d.motion_used || null })
+          .select()
+          .single();
+        if (debateError) continue;
+        await supabase.from('debate_teams').insert([
+          { debate_id: debate.id, team_id: d.team1_id, position: 'government' },
+          { debate_id: debate.id, team_id: d.team2_id, position: 'opposition' }
+        ]);
+        if (d.adjudicator_id) {
+          await supabase.from('debate_adjudicators').insert({ debate_id: debate.id, adjudicator_id: d.adjudicator_id, role: 'chair' });
+        }
+      }
+      // Make round public
+      await supabase.from('rounds').update({ status: 'ongoing' }).eq('id', editorRoundId);
+      setShowDrawEditor(false);
+      fetchData();
+      if (selectedRound === editorRoundId) fetchDebates(editorRoundId);
+      alert('Draw generated and published.');
+    } catch (error: any) {
       alert('Error generating draw: ' + error.message);
     }
   };
@@ -1192,10 +1158,10 @@ export default function Rounds() {
                             </button>
                           ) : (
                             <button
-                              onClick={(e) => { e.stopPropagation(); generateDraw(round.id); }}
+                            onClick={(e) => { e.stopPropagation(); openDrawEditor(round.id); }}
                               className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
                             >
-                              Generate Draw
+                            Generate Draw
                             </button>
                           )}
                           <button
@@ -1462,6 +1428,130 @@ export default function Rounds() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Draw Editor Modal */}
+      {showDrawEditor && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold text-slate-900 mb-4">Edit Draw</h2>
+            <p className="text-slate-600 mb-4">Review and edit debates (teams, room, adjudicator, motion). When you confirm, the round will be published to private URLs.</p>
+
+            <div className="space-y-4">
+              {draftDebates.map((d, idx) => (
+                <div key={idx} className="border border-slate-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold text-slate-900">Debate {idx + 1}</h4>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Team 1 (Gov)</label>
+                      <select
+                        value={d.team1_id || ''}
+                        onChange={(e) => {
+                          const nd = [...draftDebates];
+                          nd[idx].team1_id = e.target.value || null;
+                          setDraftDebates(nd);
+                        }}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-sm"
+                      >
+                        <option value="">Select team</option>
+                        {teams.map(t => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Team 2 (Opp)</label>
+                      <select
+                        value={d.team2_id || ''}
+                        onChange={(e) => {
+                          const nd = [...draftDebates];
+                          nd[idx].team2_id = e.target.value || null;
+                          setDraftDebates(nd);
+                        }}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-sm"
+                      >
+                        <option value="">Select team</option>
+                        {teams.map(t => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Room</label>
+                      <select
+                        value={d.room_id || ''}
+                        onChange={(e) => {
+                          const nd = [...draftDebates];
+                          nd[idx].room_id = e.target.value || null;
+                          setDraftDebates(nd);
+                        }}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-sm"
+                      >
+                        <option value="">Select room</option>
+                        {rooms.map(r => (
+                          <option key={r.id} value={r.id}>{r.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Adjudicator (Chair)</label>
+                      <select
+                        value={d.adjudicator_id || ''}
+                        onChange={(e) => {
+                          const nd = [...draftDebates];
+                          nd[idx].adjudicator_id = e.target.value || null;
+                          setDraftDebates(nd);
+                        }}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-sm"
+                      >
+                        <option value="">Select adjudicator</option>
+                        {adjudicators.map(a => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="md:col-span-2 lg:col-span-4">
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Motion</label>
+                      <input
+                        value={d.motion_used}
+                        onChange={(e) => {
+                          const nd = [...draftDebates];
+                          nd[idx].motion_used = e.target.value;
+                          setDraftDebates(nd);
+                        }}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                        placeholder="Enter motion"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {draftDebates.length === 0 && (
+                <div className="text-slate-500">No debates to configure. Add teams/rooms or motions to this round and try again.</div>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <button
+                type="button"
+                onClick={() => setShowDrawEditor(false)}
+                className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDrawFromEditor}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+              >
+                Publish Draw
+              </button>
+            </div>
           </div>
         </div>
       )}
