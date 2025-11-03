@@ -138,35 +138,64 @@ export default function Standings() {
 
       setTeams(teamsSorted);
 
-      // Calculate speaker standings
-      const speakerMap = new Map<string, Speaker>();
-      
-      teamsSorted.forEach(team => {
-        team.speaker_names.forEach((speakerName, index) => {
-          const key = `${team.name}-${speakerName}`;
-          if (!speakerMap.has(key)) {
-            speakerMap.set(key, {
-              name: speakerName,
-              team_name: team.name,
-              institution: team.institutions?.name || '',
-              total_speaks: 0,
-              rounds_count: 0,
-              average_speaks: 0
+      // Calculate speaker standings from speaker_scores filtered by selected tournament
+      const speakerTotals = new Map<string, { totalSpeaks: number; speechesCount: number; name: string; teamName: string; institution: string }>();
+
+      // Fetch speaker scores joined through debate_teams -> debates -> rounds to filter by tournament
+      const { data: scoresData, error: scoresError } = await supabase
+        .from('speaker_scores')
+        .select(`
+          speaker_name,
+          score,
+          debate_teams(
+            team_id,
+            debates(
+              round_id,
+              rounds(tournament_id)
+            ),
+            teams(name, institutions(name))
+          )
+        `)
+        .eq('debate_teams.debates.rounds.tournament_id', selectedTournament);
+
+      if (scoresError) {
+        console.error('Error fetching speaker scores:', scoresError);
+      } else if (scoresData) {
+        for (const row of scoresData as any[]) {
+          const team = row.debate_teams?.teams;
+          const instName = team?.institutions?.name || '';
+          const key = `${team?.name || 'Team'}-${row.speaker_name}`;
+          if (!speakerTotals.has(key)) {
+            speakerTotals.set(key, {
+              totalSpeaks: 0,
+              speechesCount: 0,
+              name: row.speaker_name,
+              teamName: team?.name || 'Team',
+              institution: instName
             });
           }
+          const agg = speakerTotals.get(key)!;
+          agg.totalSpeaks += Number(row.score) || 0;
+          agg.speechesCount += 1;
+        }
+      }
 
-          // Get speaker scores from debates
-          // This would need to be calculated from actual debate data
-          // For now, we'll estimate based on team performance
-        });
+      const computedSpeakers: Speaker[] = Array.from(speakerTotals.values()).map(s => ({
+        name: s.name,
+        team_name: s.teamName,
+        institution: s.institution,
+        total_speaks: s.totalSpeaks,
+        rounds_count: s.speechesCount,
+        average_speaks: s.speechesCount > 0 ? s.totalSpeaks / s.speechesCount : 0
+      }));
+
+      // Sort speakers by total speaks, then average speaks
+      computedSpeakers.sort((a, b) => {
+        if (b.total_speaks !== a.total_speaks) return b.total_speaks - a.total_speaks;
+        return b.average_speaks - a.average_speaks;
       });
 
-      // Sort speakers by average speaks
-      const sortedSpeakers = Array.from(speakerMap.values())
-        .sort((a, b) => b.average_speaks - a.average_speaks)
-        .slice(0, 10); // Top 10 speakers
-
-      setSpeakers(sortedSpeakers);
+      setSpeakers(computedSpeakers);
 
       // Fetch adjudicator statistics
       const { data: adjsData, error: adjsError } = await supabase
@@ -370,7 +399,7 @@ export default function Standings() {
         {activeTab === 'speakers' && (
           <div>
             <div className="p-4">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">Top Speakers</h3>
+              <h3 className="text-lg font-semibold text-slate-900 mb-4">Speaker Rankings</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {speakers.map((speaker, index) => (
                   <div
@@ -387,6 +416,12 @@ export default function Standings() {
                       </div>
                     </div>
                     <div className="mt-3 space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Total Speaks:</span>
+                        <span className="font-medium text-slate-900">
+                          {speaker.total_speaks.toFixed(2)}
+                        </span>
+                      </div>
                       <div className="flex justify-between">
                         <span className="text-slate-600">Avg Speaks:</span>
                         <span className="font-medium text-slate-900">
