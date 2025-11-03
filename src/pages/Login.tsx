@@ -40,7 +40,7 @@ export default function Login() {
             Roparcat
           </h1>
           <p className="text-center text-slate-600 mb-8">
-            Fuck Lakshay
+            We love dogs
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-6">

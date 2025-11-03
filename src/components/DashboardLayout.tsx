@@ -49,7 +49,7 @@ export default function DashboardLayout() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-slate-900">Roparcat</h1>
-                <p className="text-xs text-slate-500">Debsoc, IIT Ropar</p>
+                <p className="text-xs text-slate-500">We love dogs</p>
               </div>
             </div>
 
