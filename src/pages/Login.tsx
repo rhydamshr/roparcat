@@ -37,10 +37,10 @@ export default function Login() {
           </div>
 
           <h1 className="text-3xl font-bold text-center text-slate-900 mb-2">
-            Tabbycat Clone
+            Roparcat
           </h1>
           <p className="text-center text-slate-600 mb-8">
-            Debate Tournament Management
+            Fuck Lakshay
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-6">
