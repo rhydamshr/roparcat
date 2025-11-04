@@ -65,3 +65,4 @@ CREATE POLICY "Public can view speaker_scores"
 -- Only authenticated users can insert/update/delete
 
 
+

@@ -75,7 +75,8 @@ export default function PublicDraw() {
           *,
           debates(*, motion_used, rounds(*, motion_1, motion_2, motion_3), rooms(name), debate_teams(*, teams(name)), debate_adjudicators(*, adjudicators(name)))
         `)
-        .eq('team_id', teamId);
+        .eq('team_id', teamId)
+        .eq('debates.rounds.status', 'ongoing');
 
       if (debatesError) throw debatesError;
 

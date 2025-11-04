@@ -14,3 +14,4 @@ ADD COLUMN IF NOT EXISTS motion_used text;
 UPDATE rounds SET motion_1 = motion WHERE motion IS NOT NULL;
 
 
+

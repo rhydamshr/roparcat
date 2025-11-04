@@ -31,3 +31,4 @@ CREATE POLICY "Public can update teams"
   TO public
   USING (true);
 
+

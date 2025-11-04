@@ -330,48 +330,15 @@ export default function Rounds() {
 
   const openDrawEditor = async (roundId: string) => {
     try {
-      // First, remove existing draws for this round
-      console.log('Preparing draft by removing existing draws for round:', roundId);
-      
-      // Get existing debates for this round
-      const { data: existingDebates } = await supabase
+      // Try to load existing draws for this round; if none, prepare a new draft
+      const { data: existing } = await supabase
         .from('debates')
-        .select('id')
+        .select(`
+          id, room_id, motion_used,
+          debate_teams(id, team_id, position),
+          debate_adjudicators(adjudicator_id)
+        `)
         .eq('round_id', roundId);
-
-      if (existingDebates && existingDebates.length > 0) {
-        const debateIds = existingDebates.map(d => d.id);
-        
-        // Delete related records first (due to foreign key constraints)
-        await supabase
-          .from('speaker_scores')
-          .delete()
-          .in('debate_team_id', 
-            await supabase
-              .from('debate_teams')
-              .select('id')
-              .in('debate_id', debateIds)
-              .then(res => res.data?.map(dt => dt.id) || [])
-          );
-
-        await supabase
-          .from('debate_teams')
-          .delete()
-          .in('debate_id', debateIds);
-
-        await supabase
-          .from('debate_adjudicators')
-          .delete()
-          .in('debate_id', debateIds);
-
-        // Finally delete the debates
-        await supabase
-          .from('debates')
-          .delete()
-          .eq('round_id', roundId);
-
-        console.log('Removed existing draws');
-      }
 
       // Get the round details
       const { data: roundData } = await supabase
@@ -402,21 +369,38 @@ export default function Rounds() {
       // Motions available from round
       const motions = [roundData.motion_1, roundData.motion_2, roundData.motion_3].filter(Boolean) as string[];
 
-      // Build initial draft pairings (2 teams per debate for AP)
-      const sortedTeams = [...eligibleTeams].sort((a, b) => {
-        if ((b.total_points || 0) !== (a.total_points || 0)) return (b.total_points || 0) - (a.total_points || 0);
-        return (b.total_speaks || 0) - (a.total_speaks || 0);
-      });
-      const draft: typeof draftDebates = [];
-      const numDebates = Math.min(Math.ceil(sortedTeams.length / 2), availableRooms.length);
-      for (let i = 0; i < numDebates; i++) {
-        draft.push({
-          room_id: availableRooms[i]?.id || null,
-          motion_used: motions[0] || '',
-          adjudicator_id: adjudicators[0]?.id || null,
-          team1_id: sortedTeams[i * 2]?.id || null,
-          team2_id: sortedTeams[i * 2 + 1]?.id || null
+      let draft: typeof draftDebates = [];
+
+      if (existing && existing.length > 0) {
+        // Map existing debates to editor draft (preserve current setup)
+        draft = existing.map(d => {
+          const gov = d.debate_teams?.find((x: any) => x.position === 'government');
+          const opp = d.debate_teams?.find((x: any) => x.position === 'opposition');
+          const chair = d.debate_adjudicators && d.debate_adjudicators[0]?.adjudicator_id ? d.debate_adjudicators[0].adjudicator_id : null;
+          return {
+            room_id: d.room_id || null,
+            motion_used: d.motion_used || motions[0] || '',
+            adjudicator_id: chair,
+            team1_id: gov?.team_id || null,
+            team2_id: opp?.team_id || null
+          };
         });
+      } else {
+        // Build initial draft pairings (2 teams per debate for AP)
+        const sortedTeams = [...eligibleTeams].sort((a, b) => {
+          if ((b.total_points || 0) !== (a.total_points || 0)) return (b.total_points || 0) - (a.total_points || 0);
+          return (b.total_speaks || 0) - (a.total_speaks || 0);
+        });
+        const numDebates = Math.min(Math.ceil(sortedTeams.length / 2), availableRooms.length);
+        for (let i = 0; i < numDebates; i++) {
+          draft.push({
+            room_id: availableRooms[i]?.id || null,
+            motion_used: motions[0] || '',
+            adjudicator_id: adjudicators[0]?.id || null,
+            team1_id: sortedTeams[i * 2]?.id || null,
+            team2_id: sortedTeams[i * 2 + 1]?.id || null
+          });
+        }
       }
 
       setEditorRoundId(roundId);
@@ -431,7 +415,30 @@ export default function Rounds() {
   const confirmDrawFromEditor = async () => {
     if (!editorRoundId) return;
     try {
-      // Create debates from draftDebates
+      // Replace existing setup with current editor state (idempotent save) without publishing
+      // First, clear existing debates (only structure, not round status)
+      const { data: existingDebates } = await supabase
+        .from('debates')
+        .select('id')
+        .eq('round_id', editorRoundId);
+
+      if (existingDebates && existingDebates.length > 0) {
+        const debateIds = existingDebates.map(d => d.id);
+        await supabase
+          .from('speaker_scores')
+          .delete()
+          .in('debate_team_id', 
+            await supabase
+              .from('debate_teams')
+              .select('id')
+              .in('debate_id', debateIds)
+              .then(res => res.data?.map(dt => dt.id) || [])
+          );
+        await supabase.from('debate_teams').delete().in('debate_id', debateIds);
+        await supabase.from('debate_adjudicators').delete().in('debate_id', debateIds);
+        await supabase.from('debates').delete().eq('round_id', editorRoundId);
+      }
+
       for (const d of draftDebates) {
         if (!d.team1_id || !d.team2_id || !d.room_id) continue;
         const { data: debate, error: debateError } = await supabase
@@ -448,14 +455,26 @@ export default function Rounds() {
           await supabase.from('debate_adjudicators').insert({ debate_id: debate.id, adjudicator_id: d.adjudicator_id, role: 'chair' });
         }
       }
-      // Make round public
+
+      setShowDrawEditor(false);
+      fetchData();
+      if (selectedRound === editorRoundId) fetchDebates(editorRoundId);
+      alert('Draw setup saved. You can publish it later.');
+    } catch (error: any) {
+      alert('Error saving draw setup: ' + error.message);
+    }
+  };
+
+  const publishDrawForEditorRound = async () => {
+    if (!editorRoundId) return;
+    try {
       await supabase.from('rounds').update({ status: 'ongoing' }).eq('id', editorRoundId);
       setShowDrawEditor(false);
       fetchData();
       if (selectedRound === editorRoundId) fetchDebates(editorRoundId);
-      alert('Draw generated and published.');
+      alert('Draw published.');
     } catch (error: any) {
-      alert('Error generating draw: ' + error.message);
+      alert('Error publishing draw: ' + error.message);
     }
   };
 
@@ -1547,6 +1566,13 @@ export default function Rounds() {
               <button
                 type="button"
                 onClick={confirmDrawFromEditor}
+                className="flex-1 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors font-semibold"
+              >
+                Save Setup
+              </button>
+              <button
+                type="button"
+                onClick={publishDrawForEditorRound}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
               >
                 Publish Draw

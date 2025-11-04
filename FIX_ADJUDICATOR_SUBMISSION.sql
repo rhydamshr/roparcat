@@ -52,3 +52,4 @@ FROM teams
 ORDER BY total_points DESC 
 LIMIT 5;
 
+

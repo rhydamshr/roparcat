@@ -16,3 +16,4 @@ ALTER TABLE rounds ADD COLUMN IF NOT EXISTS speakers_per_team integer DEFAULT 3;
 UPDATE rounds SET speakers_per_team = 3 WHERE speakers_per_team IS NULL;
 
 
+

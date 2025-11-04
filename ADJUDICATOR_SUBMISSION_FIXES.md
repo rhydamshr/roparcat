@@ -128,3 +128,4 @@ const updateTeamStandings = async () => {
 
 The adjudicator submission process now works perfectly!
 
+
