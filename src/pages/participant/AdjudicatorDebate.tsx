@@ -17,6 +17,7 @@ type Debate = {
     motion_1: string | null;
     motion_2: string | null;
     motion_3: string | null;
+    round_number?: number;
   };
   debate_teams?: {
     id: string;
@@ -29,6 +30,12 @@ type Debate = {
       name: string;
       speaker_names: string[];
     };
+    speaker_scores?: {
+      id: string;
+      position: number;
+      score: number;
+      speaker_name: string;
+    }[];
   }[];
 };
 
@@ -41,10 +48,12 @@ export default function AdjudicatorDebate() {
   const { adjudicatorId } = useParams<{ adjudicatorId: string }>();
   const [adjudicator, setAdjudicator] = useState<Adjudicator | null>(null);
   const [currentDebate, setCurrentDebate] = useState<Debate | null>(null);
+  const [pastDebates, setPastDebates] = useState<Debate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [speakerScores, setSpeakerScores] = useState<Record<string, Record<string, number>>>({});
+  const [pastScores, setPastScores] = useState<Record<string, Record<string, number>>>({});
   const [winner, setWinner] = useState<string>('');
 
   useEffect(() => {
@@ -79,7 +88,7 @@ export default function AdjudicatorDebate() {
             *,
             rooms(name),
             rounds(*, motion_1, motion_2, motion_3),
-            debate_teams(*, teams(name, speaker_names))
+            debate_teams(*, teams(name, speaker_names), speaker_scores(*))
           )
         `)
         .eq('adjudicator_id', adjudicatorId);
@@ -105,25 +114,44 @@ export default function AdjudicatorDebate() {
         return bTime - aTime;
       });
 
-      // Only show pending debates (completed debates are hidden)
+      // Only show the most recent pending debate as current
       const current = debates.find(d => d.status === 'pending');
       setCurrentDebate(current);
 
       console.log('Current debate:', current);
 
-      // Initialize speaker scores
+      // Initialize speaker scores for current
       if (current?.debate_teams) {
         const scores: Record<string, Record<string, number>> = {};
         current.debate_teams.forEach(dt => {
           if (dt.teams?.speaker_names) {
             scores[dt.id] = {};
             dt.teams.speaker_names.forEach((_, idx) => {
-              scores[dt.id][`speaker_${idx + 1}`] = 0;
+              // Pre-fill from existing speaker_scores if any
+              const existing = dt.speaker_scores?.find(s => s.position === (idx + 1));
+              scores[dt.id][`speaker_${idx + 1}`] = existing?.score || 0;
             });
           }
         });
         setSpeakerScores(scores);
       }
+
+      // Build past debates list (completed ones)
+      const completed = debates.filter(d => d.status === 'completed');
+      setPastDebates(completed);
+      // Initialize past scores map
+      const pScores: Record<string, Record<string, number>> = {};
+      for (const d of completed) {
+        for (const dt of d.debate_teams || []) {
+          pScores[dt.id] = pScores[dt.id] || {};
+          const maxSpeakers = (dt.teams?.speaker_names?.length || 3);
+          for (let i = 1; i <= maxSpeakers; i++) {
+            const existing = dt.speaker_scores?.find(s => s.position === i);
+            pScores[dt.id][`speaker_${i}`] = existing?.score || 0;
+          }
+        }
+      }
+      setPastScores(pScores);
 
     } catch (error: any) {
       console.error('Fetch error:', error);
@@ -359,6 +387,52 @@ export default function AdjudicatorDebate() {
     }
   };
 
+  const savePastDebateScores = async (debate: Debate) => {
+    try {
+      for (const dt of debate.debate_teams || []) {
+        const scores = pastScores[dt.id] || {};
+        const teamSpeakers = dt.teams?.speaker_names || [];
+        let total = 0;
+        for (let i = 0; i < Math.max(teamSpeakers.length, 3); i++) {
+          const pos = i + 1;
+          const val = scores[`speaker_${pos}`] || 0;
+          total += val;
+
+          // Upsert speaker_score for this debate_team and position
+          const { data: existing } = await supabase
+            .from('speaker_scores')
+            .select('id')
+            .eq('debate_team_id', dt.id)
+            .eq('position', pos)
+            .maybeSingle();
+
+          if (existing) {
+            await supabase
+              .from('speaker_scores')
+              .update({ speaker_name: teamSpeakers[i] || `Speaker ${pos}`, score: val })
+              .eq('id', existing.id);
+          } else {
+            if (val > 0) {
+              await supabase
+                .from('speaker_scores')
+                .insert({ debate_team_id: dt.id, speaker_name: teamSpeakers[i] || `Speaker ${pos}`, score: val, position: pos });
+            }
+          }
+        }
+
+        // Recompute debate_teams.total_speaks
+        await supabase
+          .from('debate_teams')
+          .update({ total_speaks: total })
+          .eq('id', dt.id);
+      }
+
+      alert('Past debate scores saved.');
+    } catch (e: any) {
+      alert('Error saving past scores: ' + e.message);
+    }
+  };
+
   const getGovernmentTeam = () => {
     return currentDebate?.debate_teams?.find(dt => dt.position === 'government');
   };
@@ -400,8 +474,7 @@ export default function AdjudicatorDebate() {
         <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
           <h1 className="text-2xl font-bold text-slate-900 mb-4">No Active Debates</h1>
           <p className="text-slate-600 mb-4">
-            No pending debates have been assigned to this adjudicator yet. 
-            Completed debates are not shown here.
+            No pending debates have been assigned to this adjudicator yet.
           </p>
           <p className="text-xs text-slate-500">
             Adjudicator: {adjudicator.name}
@@ -594,6 +667,68 @@ export default function AdjudicatorDebate() {
           )}
         </div>
       </div>
+
+      {/* Past Debates (View/Edit Scores) */}
+      {pastDebates.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-xl p-8">
+          <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-3">
+            <Award className="w-7 h-7 text-slate-600" />
+            Past Debates (edit scores)
+          </h2>
+          <div className="space-y-8">
+            {pastDebates.map(debate => (
+              <div key={debate.id} className="border border-slate-200 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-sm text-slate-500">{debate.rounds?.name}</p>
+                    <p className="text-lg font-semibold text-slate-900">{debate.rooms?.name || 'TBD'}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {(debate.debate_teams || []).map(dt => (
+                    <div key={dt.id} className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                      <p className="text-xs uppercase tracking-wide text-slate-500 mb-1">{dt.position}</p>
+                      <p className="text-base font-semibold text-slate-900 mb-4">{dt.teams?.name}</p>
+                      <div className="space-y-3">
+                        {Array.from({ length: Math.max(dt.teams?.speaker_names?.length || 3, 3) }).map((_, idx) => (
+                          <div key={idx} className="flex items-center gap-3">
+                            <div className="w-28 text-sm text-slate-700 truncate">
+                              {dt.teams?.speaker_names?.[idx] || `Speaker ${idx + 1}`}
+                            </div>
+                            <input
+                              type="number"
+                              min={60}
+                              max={100}
+                              step={0.5}
+                              value={pastScores[dt.id]?.[`speaker_${idx + 1}`] ?? 0}
+                              onChange={(e) => setPastScores(prev => ({
+                                ...prev,
+                                [dt.id]: {
+                                  ...(prev[dt.id] || {}),
+                                  [`speaker_${idx + 1}`]: parseFloat(e.target.value)
+                                }
+                              }))}
+                              className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    onClick={() => savePastDebateScores(debate)}
+                    className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors"
+                  >
+                    Save Scores
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

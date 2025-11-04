@@ -80,16 +80,17 @@ export default function PublicDraw() {
 
       if (debatesError) throw debatesError;
 
-      const teamDebates = debatesData
+      let teamDebates = debatesData
         .map(dt => dt.debates)
         .filter(Boolean) as Debate[];
 
-      // Sort by round number (ascending)
-      teamDebates.sort((a, b) => {
-        const aRound = a.rounds?.round_number || 0;
-        const bRound = b.rounds?.round_number || 0;
-        return aRound - bRound;
-      });
+      // Keep only the latest ongoing round (remove any history)
+      if (teamDebates.length > 0) {
+        const maxRound = Math.max(
+          ...teamDebates.map(d => d.rounds?.round_number || 0)
+        );
+        teamDebates = teamDebates.filter(d => (d.rounds?.round_number || 0) === maxRound);
+      }
 
       setDebates(teamDebates);
 
