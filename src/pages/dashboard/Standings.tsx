@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Trophy, Award, TrendingUp, Users, UserCheck } from 'lucide-react';
+import { Award, Users, UserCheck } from 'lucide-react';
 
 type Tournament = {
   id: string;
@@ -57,43 +57,7 @@ export default function Standings() {
     }
   }, [selectedTournament]);
 
-  const updateTeamStandings = async () => {
-    try {
-      // Get all teams
-      const { data: teams } = await supabase
-        .from('teams')
-        .select('id');
-
-      if (!teams) return;
-
-      // Update each team's standings
-      for (const team of teams) {
-        // Get total points and speaks from debate_teams
-        const { data: debateTeams } = await supabase
-          .from('debate_teams')
-          .select('points, total_speaks')
-          .eq('team_id', team.id);
-
-        if (debateTeams) {
-          const totalPoints = debateTeams.reduce((sum, dt) => sum + (dt.points || 0), 0);
-          const totalSpeaks = debateTeams.reduce((sum, dt) => sum + (dt.total_speaks || 0), 0);
-          const roundsCount = debateTeams.length;
-
-          // Update team record
-          await supabase
-            .from('teams')
-            .update({
-              total_points: totalPoints,
-              total_speaks: totalSpeaks,
-              rounds_count: roundsCount
-            })
-            .eq('id', team.id);
-        }
-      }
-    } catch (error) {
-      console.error('Error updating team standings:', error);
-    }
-  };
+  // Team standings are computed live from public rounds; no table updates here
 
   const fetchTournaments = async () => {
     try {
@@ -117,10 +81,7 @@ export default function Standings() {
 
   const fetchStandings = async () => {
     try {
-      // First, manually update team standings to ensure they're current
-      await updateTeamStandings();
-
-      // Fetch teams with institutions
+      // Fetch teams with institutions (base list)
       const { data: teamsData, error: teamsError } = await supabase
         .from('teams')
         .select('*, institutions(name)')
@@ -128,15 +89,47 @@ export default function Standings() {
 
       if (teamsError) throw teamsError;
 
-      // Sort by total_points first, then total_speaks
-      const teamsSorted = (teamsData || []).sort((a, b) => {
-        if (b.total_points !== a.total_points) {
-          return b.total_points - a.total_points;
-        }
+      // Fetch debate_teams limited to selected tournament and only public rounds (exclude 'setup')
+      const { data: debateTeamsData, error: debateTeamsError } = await supabase
+        .from('debate_teams')
+        .select(`
+          team_id,
+          points,
+          total_speaks,
+          debates(rounds(tournament_id,status))
+        `)
+        .eq('debates.rounds.tournament_id', selectedTournament)
+        .neq('debates.rounds.status', 'setup');
+
+      if (debateTeamsError) throw debateTeamsError;
+
+      const totalsByTeam = new Map<string, { points: number; speaks: number; rounds: number }>();
+      (debateTeamsData || []).forEach((row: any) => {
+        const teamId = row.team_id as string;
+        const acc = totalsByTeam.get(teamId) || { points: 0, speaks: 0, rounds: 0 };
+        acc.points += Number(row.points) || 0;
+        acc.speaks += Number(row.total_speaks) || 0;
+        acc.rounds += 1;
+        totalsByTeam.set(teamId, acc);
+      });
+
+      const teamsComputed = (teamsData || []).map(t => {
+        const agg = totalsByTeam.get(t.id) || { points: 0, speaks: 0, rounds: 0 };
+        return {
+          ...t,
+          total_points: agg.points,
+          total_speaks: agg.speaks,
+          rounds_count: agg.rounds,
+        } as Team;
+      });
+
+      // Sort by points then speaks
+      teamsComputed.sort((a, b) => {
+        if (b.total_points !== a.total_points) return b.total_points - a.total_points;
         return b.total_speaks - a.total_speaks;
       });
 
-      setTeams(teamsSorted);
+      setTeams(teamsComputed);
 
       // Calculate speaker standings from speaker_scores filtered by selected tournament
       const speakerTotals = new Map<string, { totalSpeaks: number; speechesCount: number; name: string; teamName: string; institution: string }>();
@@ -151,12 +144,13 @@ export default function Standings() {
             team_id,
             debates(
               round_id,
-              rounds(tournament_id)
+              rounds(tournament_id,status)
             ),
             teams(name, institutions(name))
           )
         `)
-        .eq('debate_teams.debates.rounds.tournament_id', selectedTournament);
+        .eq('debate_teams.debates.rounds.tournament_id', selectedTournament)
+        .neq('debate_teams.debates.rounds.status', 'setup');
 
       if (scoresError) {
         console.error('Error fetching speaker scores:', scoresError);

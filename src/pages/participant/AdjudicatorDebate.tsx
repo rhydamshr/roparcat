@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useParams } from 'react-router-dom';
-import { Users, MapPin, Award, Save, Gavel } from 'lucide-react';
+import { MapPin, Award, Save, Gavel } from 'lucide-react';
 
 type Debate = {
   id: string;
@@ -91,7 +91,8 @@ export default function AdjudicatorDebate() {
             debate_teams(*, teams(name, speaker_names), speaker_scores(*))
           )
         `)
-        .eq('adjudicator_id', adjudicatorId);
+        .eq('adjudicator_id', adjudicatorId)
+        .neq('debates.rounds.status', 'setup');
 
       console.log('Debates data:', debatesData, 'Error:', debatesError);
       
@@ -116,7 +117,7 @@ export default function AdjudicatorDebate() {
 
       // Only show the most recent pending debate as current
       const current = debates.find(d => d.status === 'pending');
-      setCurrentDebate(current);
+      setCurrentDebate(current || null);
 
       console.log('Current debate:', current);
 
@@ -291,11 +292,9 @@ export default function AdjudicatorDebate() {
     setSaving(true);
     try {
       // Calculate total speaks for each team
-      const govScores = speakerScores[govTeam.id] || {};
-      const oppScores = speakerScores[oppTeam.id] || {};
+      // Speaker scores are read per team below
       
-      const govTotalSpeaks = Object.values(govScores).reduce((sum, score) => sum + score, 0);
-      const oppTotalSpeaks = Object.values(oppScores).reduce((sum, score) => sum + score, 0);
+      // Totals are computed per debate_team below
       
       // Determine winner based on position selected
       const winningPosition = winner;
