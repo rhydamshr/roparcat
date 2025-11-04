@@ -208,7 +208,7 @@ export default function PublicDraw() {
                 Speakers: {team.speaker_names?.join(', ')}
               </p>
             </div>
-            <div className="flex gap-4">
+            {/* <div className="flex gap-4">
               <div className="text-center">
                 <div className="text-2xl font-bold text-slate-900">
                   #{getCurrentRank()}
@@ -227,7 +227,7 @@ export default function PublicDraw() {
                 </div>
                 <div className="text-xs text-slate-600">Rounds</div>
               </div>
-            </div>
+            </div> */}
           </div>
         </div>
 
