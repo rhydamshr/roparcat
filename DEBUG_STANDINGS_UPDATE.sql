@@ -48,3 +48,4 @@ WHERE tablename = 'teams';
 -- UPDATE teams SET total_points = 1, total_speaks = 75, rounds_count = 1 WHERE id = 'your-team-id-here';
 
 
+

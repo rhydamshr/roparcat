@@ -66,3 +66,4 @@ CREATE POLICY "Public can view speaker_scores"
 
 
 
+

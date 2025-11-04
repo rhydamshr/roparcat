@@ -397,7 +397,7 @@ export default function PublicDraw() {
           </div>
         )}
 
-        {/* Standings */}
+        {/* Standings
         <div className="bg-white rounded-2xl shadow-xl p-8 mb-6">
           <h2 className="text-2xl font-bold text-slate-900 mb-6">Overall Standings</h2>
           <div className="overflow-x-auto">
@@ -435,7 +435,7 @@ export default function PublicDraw() {
               </tbody>
             </table>
           </div>
-        </div>
+        </div> */}
 
         {/* Round History
         <div className="bg-white rounded-2xl shadow-xl p-8">

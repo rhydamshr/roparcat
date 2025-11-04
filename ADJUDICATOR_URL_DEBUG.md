@@ -163,3 +163,4 @@ CREATE POLICY IF NOT EXISTS "Public can view rounds"
 The updated code now provides much better error messages and debugging information!
 
 
+

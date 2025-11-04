@@ -5,3 +5,4 @@ ALTER TABLE speaker_scores ADD CONSTRAINT speaker_scores_position_check
 
 
 
+
