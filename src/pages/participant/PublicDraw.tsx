@@ -437,7 +437,7 @@ export default function PublicDraw() {
           </div>
         </div>
 
-        {/* Round History */}
+        {/* Round History
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <h2 className="text-2xl font-bold text-slate-900 mb-6">Round History</h2>
           <div className="space-y-4">
@@ -473,7 +473,7 @@ export default function PublicDraw() {
               <p className="text-slate-500 text-center py-8">No rounds completed yet</p>
             )}
           </div>
-        </div>
+        </div> */}
       </div>
     </div>
   );
