@@ -14,6 +14,7 @@ import Rounds from './pages/dashboard/Rounds';
 import Standings from './pages/dashboard/Standings';
 import PublicDraw from './pages/participant/PublicDraw';
 import AdjudicatorDebate from './pages/participant/AdjudicatorDebate';
+import Tabs from './pages/participant/Tabs';
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
           {/* Public Routes */}
           <Route path="/team/:teamId" element={<PublicDraw />} />
           <Route path="/adjudicator/:adjudicatorId" element={<AdjudicatorDebate />} />
+          <Route path="/tabs" element={<Tabs />} />
           
           {/* Auth Routes */}
           <Route path="/login" element={<Login />} />

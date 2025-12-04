@@ -18,3 +18,4 @@ UPDATE rounds SET speakers_per_team = 3 WHERE speakers_per_team IS NULL;
 
 
 
+
