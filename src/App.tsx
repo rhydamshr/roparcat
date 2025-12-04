@@ -24,7 +24,7 @@ function App() {
           {/* Public Routes */}
           <Route path="/team/:teamId" element={<PublicDraw />} />
           <Route path="/adjudicator/:adjudicatorId" element={<AdjudicatorDebate />} />
-          <Route path="/tabs" element={<Tabs />} />
+          <Route path="/eristic/tabs" element={<Tabs />} />
           
           {/* Auth Routes */}
           <Route path="/login" element={<Login />} />
