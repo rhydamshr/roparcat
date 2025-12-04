@@ -197,9 +197,6 @@ export default function Tabs() {
               <h1 className="text-3xl font-bold text-slate-900 mt-2">
                 {selectedTournament ? selectedTournament.name : 'No tournament found'}
               </h1>
-              <p className="text-slate-600 mt-1">
-                Live overall standings · Sorted by wins, then speaks
-              </p>
             </div>
             {tournaments.length > 1 && (
               <select
@@ -238,12 +235,12 @@ export default function Tabs() {
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold text-slate-900">Overall Team Rankings</h2>
-                    <p className="text-sm text-slate-500">Wins are shown first, ties break on total speaker scores.</p>
+                    {/* <p className="text-sm text-slate-500">Wins are shown first, ties break on total speaker scores.</p> */}
                   </div>
                 </div>
-                <span className="text-xs uppercase tracking-widest text-slate-500">
+                {/* <span className="text-xs uppercase tracking-widest text-slate-500">
                   Updated live
-                </span>
+                </span> */}
               </div>
 
               {teams.length === 0 ? (
@@ -290,7 +287,7 @@ export default function Tabs() {
                 </div>
                 <div>
                   <h2 className="text-xl font-semibold text-slate-900">Speaker Leaderboard</h2>
-                  <p className="text-sm text-slate-500">Sorted by total speaker scores, then average speaks.</p>
+                  {/* <p className="text-sm text-slate-500">Sorted by total speaker scores, then average speaks.</p> */}
                 </div>
               </div>
 
