@@ -90,7 +90,7 @@ export default function Tabs() {
           team_id,
           points,
           total_speaks,
-          teams(name, institutions(name)),
+          teams(name, rounds_count, institutions(name)),
           debates(
             id,
             rounds(tournament_id, status)
@@ -102,6 +102,7 @@ export default function Tabs() {
       if (debateTeamsError) throw debateTeamsError;
 
       const teamMap = new Map<string, TeamStanding>();
+      const manualRounds = new Map<string, number>();
 
       (debateTeamsData || []).forEach((row: any) => {
         const teamId = row.team_id as string | null;
@@ -121,12 +122,22 @@ export default function Tabs() {
         existing.rounds += 1;
 
         teamMap.set(teamId, existing);
+
+        const manual = Number(row.teams?.rounds_count);
+        if (!Number.isNaN(manual)) {
+          manualRounds.set(teamId, manual);
+        }
       });
 
-      const teamStandings = Array.from(teamMap.values()).sort((a, b) => {
+      const teamStandings = Array.from(teamMap.values())
+        .map((team) => ({
+          ...team,
+          rounds: manualRounds.has(team.id) ? manualRounds.get(team.id)! : team.rounds,
+        }))
+        .sort((a, b) => {
         if (b.wins !== a.wins) return b.wins - a.wins;
         return b.totalSpeaks - a.totalSpeaks;
-      });
+        });
 
       const { data: speakerRows, error: speakerError } = await supabase
         .from('speaker_scores')
