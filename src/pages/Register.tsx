@@ -38,24 +38,24 @@ export default function Register() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-2xl shadow-2xl p-8">
-          <div className="flex justify-center mb-6">
-            <div className="bg-slate-900 p-4 rounded-full">
-              {/* <Gavel className="w-8 h-8 text-white" />
-               */}
-              <svg
-  xmlns="http://www.w3.org/2000/svg"
-  width="300"
-  height="300"
-  viewBox="0 0 64 64"
-  aria-hidden="true"
-  role="img"
-  className="iconify iconify--emojione"
-  preserveAspectRatio="xMidYMid meet"
->
+//   return (
+//     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+//       <div className="w-full max-w-md">
+//         <div className="bg-white rounded-2xl shadow-2xl p-8">
+//           <div className="flex justify-center mb-6">
+//             <div className="bg-slate-900 p-4 rounded-full">
+//               {/* <Gavel className="w-8 h-8 text-white" />
+//                */}
+//               <svg
+//   xmlns="http://www.w3.org/2000/svg"
+//   width="300"
+//   height="300"
+//   viewBox="0 0 64 64"
+//   aria-hidden="true"
+//   role="img"
+//   className="iconify iconify--emojione"
+//   preserveAspectRatio="xMidYMid meet"
+// >
   <path
     d="M13.5 31.5c0-2.6 2.4-4.7 5.3-4.7h.1c2.9 0 6.3 2.1 6.3 4.7L22.6 6.4c0-2.4 3-4.4 6.9-4.4h.1c3.8 0 6.9 2 6.9 4.4L35.3 31c0-2.6 2.4-4.7 5.3-4.7h.1c2.9 0 5.3 2.1 5.3 4.7v2.7c.5-1.9 2.4-3.2 4.6-2.7c4.5 1.2 3.6 4.8 4.1 8.7c.5 4.8 1.7 7.9 1.3 9.6c-1 3.7-3.7 3.2-5.1 4.2c-1.4 1-1.8 2.6-2.9 3.6c-2.2 2-6.2 1.6-9.8 2.5c-3.1.8-5.9 2.6-8.3 2.3c-2.7-.3-3.4-2.6-6.4-4c-3-1.4-7.1-.7-8.3-3.1c-2.3-4.8-1.7-23.3-1.7-23.3"
     fill="#ffdd67"
@@ -80,9 +80,9 @@ export default function Register() {
             </div>
           </div>
 
-          <h1 className="text-3xl font-bold text-center text-slate-900 mb-2">
+          {/* <h1 className="text-3xl font-bold text-center text-slate-900 mb-2">
             MA CHUDA
-          </h1>
+          </h1> */}
           {/* <p className="text-center text-slate-600 mb-8">
             Register for Tournament Management
           </p> */}
